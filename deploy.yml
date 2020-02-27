@@ -13,7 +13,6 @@
       terraform:
         project_path: "{{ ansible_env.PWD }}"
         state: present
-      register: terraform_deployment
 
     - name: Determine terraform deployed instances
       command: jq -r '.resources[] | select(.type == "aws_instance") | .instances[].attributes.public_dns' terraform.tfstate
@@ -57,7 +56,6 @@
         timeout: 300
 
       # New box means we should update the cache.
-      #   "New" being the keyword with the conditional check.
       # TODO
       #   Well, kind of. A security policy update or something
       #   else could trigger this to run.
@@ -67,8 +65,6 @@
         state: latest
         update_cache: yes
       register: update_packages
-      when:
-        terraform_deployment is changed
 
       # Back in my day, we didn't have a fancy
       #   reboot module *shakes fist*
