@@ -11,7 +11,7 @@ ConditionalPathExists=/opt/flask
 # Don't run as root.
 User=ubuntu
 Group=ubuntu
-Type=Simple
+Type=simple
 Environment=FLASK_APP=/opt/flask/main.py
 ExecStart=/usr/local/bin/flask run
 Restart=on-failure
