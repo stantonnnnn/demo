@@ -31,11 +31,11 @@ The Ansible playbook above requires the Jenkins server to have the following pac
 
 Installation of these prerequisite, and others, may vary depending on your distribution.
 
-## AWS
-
-This workflow also relies upon the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-install.html) to be configured for the `jenkins` user on the system. This should be set up to access your AWS cloud organization. Otherwise, Terraform won't work without the credentials installed.
-
 ### Secrets
 
 The `Jenkinsfile` is statically configured for a number of secrets to allow the workflow to run against AWS and GitHub. The secrets themselves are not configured in this repo (and will never be). However, it is recommended to utilize the same Credential IDs when installing these secrets onto Jenkins servers that will be executing this job.
+
+## AWS
+
+This workflow also relies upon the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-install.html) to be configured for the `jenkins` user on the system. This should be set up to access your AWS cloud organization. Otherwise, Terraform won't work without the credentials installed.
 
