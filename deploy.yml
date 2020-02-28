@@ -16,6 +16,7 @@
 
     - name: Determine terraform deployed instances
       command: jq -r '.resources[] | select(.type == "aws_instance") | .instances[].attributes.public_dns' terraform.tfstate
+      changed_when: false
       register: terraform_state
 
       # This inventory is only added in memory.
@@ -26,6 +27,16 @@
       with_items:
         - "{{ terraform_state.stdout_lines }}"
 
+      # TODO Ansible gets this a second time after Terraform.
+      # We could use the module, but it takes more lines to change
+      #   the user agent than to do a single command here.
+      # Don't warn us that there's the `uri` module.
+    - name: Determine local IP address
+      command:
+        cmd: curl http://ipv4.icanhazip.com
+        warn: false
+      register: local_pub_ip
+
 
 
 - hosts: web_nodes
@@ -33,6 +44,33 @@
   become: true
   remote_user: ubuntu
   handlers:
+      # Ensure postfix is down, if it doesn't like the
+      #   config. We don't want it, potentially, staying
+      #   up and becoming a mail relay for the whole world.
+    - name: Restart postfix
+      service:
+        name: postfix
+        state: restarted
+        enabled: yes
+      ignore_errors: true
+      register: postfix_restart
+
+    - name: Emergency disable postfix
+      service:
+        name: postfix
+        state: stopped
+        enabled: no
+      failed_when:
+        postfix_restart is failed
+      when:
+        postfix_restart is failed
+
+    - name: Restart fail2ban
+      service:
+        name: fail2ban
+        state: restarted
+        enabled: yes
+
     - name: Restart nginx
       service:
         name: nginx
@@ -78,10 +116,13 @@
       when:
         update_packages is changed
 
+      # We need email capabilities for fail2ban notifications.
     - name: Install required packages
       apt:
         name:
           - nginx
+          - fail2ban
+          - mailutils
           - python3-pandas
           - python3-flask
         state: present
@@ -146,6 +187,44 @@
       notify:
         - Restart nginx
         - Validate nginx service
+
+      # Postfix immediately starts up after install, listening to the whole world.
+      #   What an *awful* default.
+      # Change the destinations that are allowed for our gmail clients and internal
+      #   example.com domain.
+    - name: Configure postfix for localhost output only
+      lineinfile:
+        path: /etc/postfix/main.cf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        backup: "{{ item.backup }}"
+      with_items:
+        - { regexp: '^inet_interfaces\s?=', line: 'inet_interfaces = localhost', backup: yes }
+        - { regexp: '^myhostname\s?=', line: 'myhostname = example.com', backup: no }
+        - { regexp: '^myorigin\s?=', line: 'myorigin = example.com', backup: no }
+      notify:
+        - Restart postfix
+
+    - name: Configure fail2ban
+      template:
+        src: templates/jail.local
+        dest: /etc/fail2ban/
+      notify:
+        - Restart fail2ban
+
+      # SSH has to be the first rule, otherwise, we could lock ourselves out
+      #   from the VM!
+    - name: Enable ufw rules
+      ufw:
+        rule: allow
+        state: enabled
+        to_port: "{{ item.to_port }}"
+        from_ip: "{{ item.from_ip }}"
+        proto: "{{ item.proto }}"
+        log: "{{ item.log }}"
+      with_items:
+        - { to_port: 22, from_ip: "{{ hostvars['localhost']['local_pub_ip']['stdout'] }}", proto: "tcp", log: "yes" }
+        - { to_port: 80, from_ip: "any", proto: "tcp", log: "no" }
 
 
 
