@@ -82,7 +82,8 @@
       apt:
         name:
           - nginx
-          - python3-pip
+          - python3-pandas
+          - python3-flask
         state: present
         update_cache: yes
 
@@ -96,14 +97,6 @@
       copy:
         src: files/main.py
         dest: /opt/flask/
-
-    - name: Create required pip libraries
-      pip:
-        name:
-          - pandas
-          - flask
-          - waitress
-        state: present
 
     - name: Copy flask systemd service
       copy:
