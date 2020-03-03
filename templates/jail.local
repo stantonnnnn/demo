@@ -6,9 +6,6 @@ ignoreip = 127.0.0.1/8 ::1 {{ hostvars['localhost']['local_pub_ip']['stdout'] }}
 [sshd]
 enabled = true
 
-[nginx-http-auth]
-enabled = true
-
 [postfix]
 enabled = true
 

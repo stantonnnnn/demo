@@ -2,7 +2,7 @@
 
 This git repository illustrates a demo workflow for running a Python web app in AWS, but in a relatively secure way.
 
-This is handled through Terraform, Ansible, and Jenkins.
+This is handled through Terraform, Ansible, Docker, and Jenkins.
 
 ## Terraform
 
@@ -14,9 +14,15 @@ The Terraform deployment ensures that the EC2 instances are able to be accessed 
 
 ## Ansible
 
-Ansible is utilized to execute Terraform, then build the host. This includes patching the host, installing the Python application, configuring dependent services, and adding in some extra layers of security.
+Ansible is utilized to execute Terraform, then build the host. This includes patching the host, installing Docker, and adding in some extra layers of security.
 
 The specifics of these details can be found in the `deploy.yml` file.
+
+## Docker
+
+Docker is utilized to run the required Python application, along with the public-facing NGINX container. Both environments are based off of [Publisher Images](https://docs.docker.com/docker-hub/publish/customer_faq/#what-is-the-difference-between-a-community-user-and-a-verified-publisher), with a few required customization pieces being put into the Python image.
+
+This is deployed through Ansible, instead of Docker Compose, since we already have Ansible in place for the rest of the deployment. This may be changed in the future.
 
 ## Jenkins
 

@@ -71,23 +71,23 @@
         state: restarted
         enabled: yes
 
-    - name: Restart nginx
-      service:
+    - name: Restart covariance container
+      docker_container:
+        name: covariance
+        state: restart
+      when:
+        covariance_app is changed and
+        covariance_container is not changed
+
+      # Force a container restart, if it appears the config
+      #   changed, but the container didn't.
+    - name: Restart nginx container
+      docker_container:
         name: nginx
-        state: restarted
-        enabled: yes
-
-      # We want to give the Python app some extra time for
-      # a failure and/or startup, just in case.
-    - name: Sleep 5 seconds
-      pause:
-        seconds: 5
-
-    - name: Validate flask service
-      command: systemctl is-active python-covariance-matrix-flask.service
-
-    - name: Validate nginx service
-      command: systemctl is-active nginx.service
+        state: restart
+      when:
+        nginx_config is changed and
+        nginx_container is not changed
   tasks:
     - name: Wait for new hosts to be available
       wait_for_connection:
@@ -117,76 +117,128 @@
         update_packages is changed
 
       # We need email capabilities for fail2ban notifications.
+      # We also need additional stuff for Docker.
+      #https://docs.docker.com/install/linux/docker-ce/ubuntu/
     - name: Install required packages
       apt:
         name:
-          - nginx
           - fail2ban
           - mailutils
-          - python3-pandas
-          - python3-flask
+          - apt-transport-https
+          - gnupg-agent
+          - python-docker
+          - python3-docker
         state: present
         update_cache: yes
 
-    - name: Create flask folder structure
-      file:
-        path: /opt/flask
-        state: directory
-        mode: 0755
+    - name: Install apt key for Docker repo
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
 
-    - name: Copy python script
+    - name: Install the Docker CE repo
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable
+        state: present
+        update_cache: yes
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Create Docker directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        recurse: yes
+      with_items:
+        - /tmp/docker-builds
+        - /var/lib/docker-volumes/covariance
+        - /var/lib/docker-volumes/nginx
+
+    - name: Copy Dockerfile
+      copy:
+        src: docker/python/Dockerfile
+        dest: /tmp/docker-builds/
+
+    - name: Copy covariance app
       copy:
         src: files/main.py
-        dest: /opt/flask/
-
-    - name: Copy flask systemd service
-      copy:
-        src: files/python-covariance-matrix-flask.service
-        dest: /etc/systemd/system/
-        owner: root
-        group: root
-        mode: 0644
-      register: flask_systemd_cp
-
-      # This is required for systemd to properly see changes to its files.
-    - name: Reload systemd
-      command: systemctl daemon-reload
-      when:
-        flask_systemd_cp is changed
-
-    - name: Start flask service
-      service:
-        name: python-covariance-matrix-flask
-        state: started
-        enabled: yes
+        dest: /var/lib/docker-volumes/covariance
+      register: covariance_app
       notify:
-        - Sleep 5 seconds
-        - Validate flask service
-
-    - name: Disable default nginx site
-      file:
-        path: /etc/nginx/sites-enabled/default
-        state: absent
-      notify:
-        - Restart nginx
+        - Restart covariance container
 
     - name: Copy nginx configuration
       copy:
         src: files/python-proxy.conf
-        dest: /etc/nginx/sites-available/
-        mode: 0644
+        dest: /var/lib/docker-volumes/nginx/
+      register: nginx_config
       notify:
-        - Restart nginx
-        - Validate nginx service
+        - Restart nginx container
 
-    - name: Enable flask proxy site
-      file:
-        path: /etc/nginx/sites-enabled/python-proxy.conf
-        src: /etc/nginx/sites-available/python-proxy.conf
-        state: link
-      notify:
-        - Restart nginx
-        - Validate nginx service
+      # TODO: Build this elsewhere, and have the image ready to go in a repo.
+      # TODO: Force a build tag update upon the Dockerfile task updating above.
+    - name: Build Python container
+      docker_image:
+        name: democo/covariance-env
+        tag: latest
+        build:
+          path: /tmp/docker-builds/
+          pull: yes
+        source: build
+
+    - name: Copy python script
+      copy:
+        src: files/main.py
+        dest: /var/lib/docker-volumes/covariance/
+
+    - name: Create Docker network
+      docker_network:
+        name: covariance_net
+
+      # The container doesn't know where the flask app is in /app,
+      #   so the environment variable is required here. That's one
+      #   less layer on the image, anyway.
+    - name: Start covariance container
+      docker_container:
+        name: covariance
+        state: started
+        image: democo/covariance-env
+        restart_policy: unless-stopped
+        networks_cli_compatible: yes
+        env:
+          FLASK_APP: /app/main.py
+        volumes:
+          - /var/lib/docker-volumes/covariance:/app:ro
+        networks:
+          - name: covariance_net
+            aliases: covariance
+      register: covariance_container
+
+      # TODO: Configure update tag for these containers, instead of
+      #   updating during each execution.
+    - name: Start nginx container
+      docker_container:
+        name: nginx
+        state: started
+        image: nginx
+        restart_policy: unless-stopped
+        networks_cli_compatible: yes
+        pull: yes
+        volumes:
+          - /var/lib/docker-volumes/nginx/:/etc/nginx/conf.d/:ro
+        published_ports:
+          - "80:80"
+        networks:
+          - name: covariance_net
+            aliases: nginx
+      register: nginx_container
 
       # Postfix immediately starts up after install, listening to the whole world.
       #   What an *awful* default.
