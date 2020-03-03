@@ -70,6 +70,24 @@
         name: fail2ban
         state: restarted
         enabled: yes
+
+    - name: Restart covariance container
+      docker_container:
+        name: covariance
+        state: restart
+      when:
+        covariance_app is changed and
+        covariance_container is not changed
+
+      # Force a container restart, if it appears the config
+      #   changed, but the container didn't.
+    - name: Restart nginx container
+      docker_container:
+        name: nginx
+        state: restart
+      when:
+        nginx_config is changed and
+        nginx_container is not changed
   tasks:
     - name: Wait for new hosts to be available
       wait_for_connection:
@@ -109,6 +127,7 @@
           - apt-transport-https
           - gnupg-agent
           - python-docker
+          - python3-docker
         state: present
         update_cache: yes
 
@@ -151,11 +170,17 @@
       copy:
         src: files/main.py
         dest: /var/lib/docker-volumes/covariance
+      register: covariance_app
+      notify:
+        - Restart covariance container
 
     - name: Copy nginx configuration
       copy:
         src: files/python-proxy.conf
         dest: /var/lib/docker-volumes/nginx/
+      register: nginx_config
+      notify:
+        - Restart nginx container
 
       # TODO: Build this elsewhere, and have the image ready to go in a repo.
       # TODO: Force a build tag update upon the Dockerfile task updating above.
@@ -194,6 +219,7 @@
         networks:
           - name: covariance_net
             aliases: covariance
+      register: covariance_container
 
       # TODO: Configure update tag for these containers, instead of
       #   updating during each execution.
@@ -212,6 +238,7 @@
         networks:
           - name: covariance_net
             aliases: nginx
+      register: nginx_container
 
       # Postfix immediately starts up after install, listening to the whole world.
       #   What an *awful* default.
