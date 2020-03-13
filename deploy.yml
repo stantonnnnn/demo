@@ -193,11 +193,6 @@
           pull: yes
         source: build
 
-    - name: Copy python script
-      copy:
-        src: files/main.py
-        dest: /var/lib/docker-volumes/covariance/
-
     - name: Create Docker network
       docker_network:
         name: covariance_net
